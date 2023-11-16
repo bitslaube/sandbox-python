@@ -1,0 +1,93 @@
+schemaVersion: 2.2.0
+metadata:
+  generateName: my-defile-deployment
+attributes:
+  controller.devfile.io/storage-type: ephemeral
+components:
+  - name: tools
+    container:
+      image: quay.io/devfile/universal-developer-image:ubi8-latest
+      env:
+        - name: QUARKUS_HTTP_HOST
+          value: 0.0.0.0
+      endpoints:
+        - exposure: none
+          name: debug
+          protocol: tcp
+          targetPort: 5005
+        - exposure: none
+          name: test
+          protocol: http
+          targetPort: 8081
+        - exposure: none
+          name: remote-dev-pg
+          protocol: http
+          targetPort: 5432
+        - exposure: none
+          name: remote-dev-mq
+          protocol: http
+          targetPort: 15672
+        - exposure: public
+          name: inventory
+          protocol: http
+          targetPort: 8080
+          path: /
+      memoryRequest: 500Mi
+      memoryLimit: 6G
+      cpuRequest: 1000m
+      cpuLimit: 4000m
+      mountSources: true
+  - name: m2
+    volume:
+      size: 1G
+commands:
+  - id: package
+    exec:
+      label: "1. Package"
+      component: tools
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: |
+        pip install -r requirements.txt
+      group:
+        kind: build
+        isDefault: true
+  - id: deploy
+    exec:
+      label: "2. Deploy"
+      component: tools
+      commandLine: |
+        python app.py
+      workingDir: ${PROJECT_SOURCE}
+  - id: show-cluster-url
+    exec:
+      label: "3. Show Cluster URL"
+      component: tools
+      commandLine: |
+        oc whoami --show-console
+      workingDir: ${PROJECT_SOURCE}
+  - id: quarkus-dev
+    exec:
+      label: "4. Start Development Mode"
+      component: tools
+      commandLine: |
+        source $HOME/.sdkman/bin/sdkman-init.sh && mvn -pl northwind quarkus:dev
+      workingDir: ${PROJECT_SOURCE}
+  - id: run-dev-env
+    exec:
+      label: "5. JKube Development Session"
+      component: tools
+      commandLine: |
+        source $HOME/.sdkman/bin/sdkman-init.sh && \
+        oc project $(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace) && \
+        mvn -pl northwind oc:remote-dev
+      workingDir: ${PROJECT_SOURCE}
+  - id: cleanup
+    exec:
+      label: "6. Clean Up"
+      component: tools
+      commandLine: |
+        oc delete all --selector 'group in (northwind-traders,northwind-industries)'
+      workingDir: ${PROJECT_SOURCE}
+events:
+  postStart:
+    - package
